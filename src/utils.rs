@@ -9,9 +9,9 @@ pub fn rotate_90_clockwise<T: Copy>(image_data: &Array2<T>) -> Array2<T> {
     output.to_owned()
 }
 
-pub fn masked_weighted_choice<T, M: IntoIterator<Item = bool> + Copy>(input: &[(T, usize)],
-                                                                      mask: M)
-                                                                      -> usize {
+pub fn masked_weighted_choice<T, M>(input: &[(T, usize)], mask: &M) -> usize
+    where for<'a> &'a M: IntoIterator<Item = bool>
+{
     /// Returns an index from the slice of (T, u) where u is the integer weight, i.e.
     /// [(1, 3), (2, 1), (3, 1)] returns 0 (the index of 1) with probability 3/5
 
