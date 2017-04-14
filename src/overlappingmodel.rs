@@ -119,8 +119,7 @@ impl OverlappingModel {
         for (index, cell) in self.model.iter().enumerate() {
             match cell.entropy(&self.states) {
                 None => return Err(ModelError::NoValidStates(index)),
-                Some(0.) => continue,
-                Some(u) => {
+                Some(u) if u > 0. => {
                     if u.is_nan() {
                         panic!("Got NaN for entropy!")
                     };
@@ -129,6 +128,7 @@ impl OverlappingModel {
                         output = Some([index / self_y, index % self_x]);
                     }
                 }
+                Some(_) => continue,
 
             }
         }
