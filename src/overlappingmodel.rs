@@ -112,21 +112,19 @@ impl OverlappingModel {
         }
     }
 
-    fn find_lowest_nonzero_entropy_coordinates(&self) -> Result<[usize; 2], ModelError> {
-        let mut output: Option<[usize; 2]> = None;
+    fn find_lowest_nonzero_entropy_coordinates(&self) -> Result<(usize, usize), ModelError> {
+        let mut output: Option<(usize, usize)> = None;
         let mut entropy: f64 = f64::MAX;
-        let (self_y, self_x) = self.model.dim();
-        for (index, cell) in self.model.iter().enumerate() {
+        for (index, cell) in self.model.indexed_iter() {
             match cell.entropy(&self.states) {
                 None => return Err(ModelError::NoValidStates(index)),
                 Some(u) if u > 0. => {
-                    if u.is_nan() {
-                        panic!("Got NaN for entropy!")
-                    };
                     if u <= entropy {
                         entropy = u;
-                        output = Some([index / self_y, index % self_x]);
-                    }
+                        output = Some(index);
+                    } else if u.is_nan() {
+                        return Err(ModelError::UnexpectedNaN(index));
+                    };
                 }
                 Some(_) => continue,
 
@@ -164,6 +162,7 @@ impl OverlappingModel {
 
 
 enum ModelError {
-    NoValidStates(usize),
+    NoValidStates((usize, usize)),
+    UnexpectedNaN((usize, usize)),
     AllStatesDecided,
 }
