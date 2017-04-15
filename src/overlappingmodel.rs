@@ -13,8 +13,8 @@ use std::{f64, usize};
 
 #[derive(Debug)]
 struct UncertainCell {
-    pub possible_colors: RefCell<BitVec>,
-    pub possible_states: RefCell<BitVec>,
+    possible_colors: RefCell<BitVec>,
+    possible_states: RefCell<BitVec>,
 }
 
 impl UncertainCell {
@@ -25,6 +25,11 @@ impl UncertainCell {
             possible_colors: possible_colors,
             possible_states: possible_states,
         }
+    }
+
+    #[inline(always)]
+    pub fn valid_color(&self, palette_index: usize) -> bool {
+        self.possible_colors.borrow().get(palette_index).expect("Index out of range!")
     }
 
     pub fn entropy<T>(&self, concrete_states: &[(T, usize)]) -> Option<f64> {
@@ -65,14 +70,9 @@ impl UncertainCell {
     pub fn collapse<T>(&self, concrete_states: &[(T, usize)]) {
         /// Marks all but a single state of the BitVec as forbidden, randomly chosen
         /// from the states still permitted and weighted by their frequency in the original image.
-        let chosen_state: usize;
-        {
-            let possible_states = self.possible_states.borrow();
-            chosen_state = utils::masked_weighted_choice(concrete_states, &*possible_states);
-        }
         let mut possible_states = self.possible_states.borrow_mut();
-        possible_states.set_all();
-        possible_states.negate();
+        let chosen_state = utils::masked_weighted_choice(concrete_states, &*possible_states);
+        possible_states.clear();
         possible_states.set(chosen_state, true);
     }
 }
@@ -82,17 +82,17 @@ struct OverlappingModel {
     model: Array2<UncertainCell>,
     palette: Vec<RGB>,
     states: Vec<(Array2<RGB>, usize)>,
-    block_dims: (usize, usize),
+    state_size: usize,
 }
 
 impl OverlappingModel {
     pub fn from_seed_image(seed_image: SeedImage,
                            output_dims: (usize, usize),
-                           block_dims: (usize, usize))
+                           block_size: usize)
                            -> OverlappingModel {
         let palette = OverlappingModel::build_color_palette(&seed_image.image_data);
         let states = OverlappingModel::build_block_frequency_map(&seed_image.image_data,
-                                                                 block_dims);
+                                                                 block_size);
 
         let num_colors = palette.len();
         let num_states = states.len();
@@ -108,7 +108,7 @@ impl OverlappingModel {
             model: model,
             palette: palette,
             states: states,
-            block_dims: block_dims,
+            state_size: block_size,
         }
     }
 
@@ -136,6 +136,35 @@ impl OverlappingModel {
         }
     }
 
+    fn color_to_index(&self, color: &RGB) -> usize {
+        self.palette.binary_search(color).expect("Color not found in palette!")
+    }
+
+    fn valid_coordinate(&self, coord: (usize, usize)) -> bool {
+        let (y, x) = coord;
+        let (self_y, self_x) = self.model.dim();
+        (y < self_y) && (x < self_x)
+    }
+
+    fn valid_states_at_position(&self, position: (usize, usize)) -> Vec<usize> {
+        let p = position;
+        let mut valid_state_indices = Vec::<usize>::with_capacity(self.states.len());
+
+        'state: for (state_index, state) in self.states.iter().map(|&(ref s, _)| s).enumerate() {
+            for (coord, color) in state.indexed_iter() {
+                let color = self.color_to_index(color);
+                let offset_coord = (p.0 + coord.0, p.1 + coord.1);
+                if !self.valid_coordinate(offset_coord) {continue 'state;}
+                if !self.model[offset_coord].valid_color(color) {continue 'state;}
+            }
+            valid_state_indices.push(state_index);
+
+
+        }
+
+        valid_state_indices
+    }
+
     fn build_color_palette(image_data: &Array2<RGB>) -> Vec<RGB> {
         let mut palette: Vec<RGB> = image_data.iter().cloned().collect();
         palette.sort();
@@ -144,13 +173,13 @@ impl OverlappingModel {
     }
 
     fn build_block_frequency_map(image_data: &Array2<RGB>,
-                                 block_dims: (usize, usize))
+                                 block_size: usize)
                                  -> Vec<(Array2<RGB>, usize)> {
         let mut block_counts = HashMap::new();
 
         //TODO augment with rotations and reflections
 
-        for block in image_data.windows(block_dims) {
+        for block in image_data.windows((block_size, block_size)) {
             let block = block.to_owned();
             let count = block_counts.entry(block).or_insert(0);
             *count += 1;
