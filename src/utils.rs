@@ -13,7 +13,7 @@ pub fn masked_weighted_choice<T, M>(input: &[(T, usize)], mask: &M) -> usize
     where for<'a> &'a M: IntoIterator<Item = bool>
 {
     /// Returns an index from the slice of (T, u) where u is the integer weight, i.e.
-    /// [(1, 3), (2, 1), (3, 1)] returns 0 (the index of 1) with probability 3/5
+    /// [('a', 3), ('b', 1), ('c', 1)] returns 0 (the index of 'a') with probability 3/5
 
     let total: usize = input.iter()
         .map(|&(_, u)| u)
@@ -31,8 +31,6 @@ pub fn masked_weighted_choice<T, M>(input: &[(T, usize)], mask: &M) -> usize
                 return index;
             }
             choice = choice.saturating_sub(u);
-        } else {
-            continue;
         }
     }
     unreachable!();
