@@ -9,7 +9,7 @@ pub fn rotate_90_clockwise<T: Copy>(image_data: &Array2<T>) -> Array2<T> {
     output.to_owned()
 }
 
-pub fn masked_weighted_choice<T, M>(input: &[(T, usize)], mask: &M) -> usize
+pub fn masked_weighted_choice<T, M>(input: &[(T, usize)], mask: &M) -> Option<usize>
     where for<'a> &'a M: IntoIterator<Item = bool>
 {
     /// Returns an index from the slice of (T, u) where u is the integer weight, i.e.
@@ -28,20 +28,24 @@ pub fn masked_weighted_choice<T, M>(input: &[(T, usize)], mask: &M) -> usize
     for ((index, u), mask) in input.iter().map(|&(_, u)| u).enumerate().zip(mask.into_iter()) {
         if mask {
             if choice < u {
-                return index;
+                return Some(index);
             }
             choice = choice.saturating_sub(u);
         }
     }
-    unreachable!();
+    None
 }
 
 pub fn mass_intersect(sets: Vec<BitVec>) -> Option<BitVec> {
     let mut output = None;
     for bv in sets {
         match output {
-            None => {output = Some(bv);},
-            Some(ref mut v) => {v.intersect(&bv);}
+            None => {
+                output = Some(bv);
+            }
+            Some(ref mut v) => {
+                v.intersect(&bv);
+            }
         }
     }
     output
@@ -67,12 +71,12 @@ fn mass_intersect_single_test() {
 fn mass_intersect_multi_test() {
     let mut test_vec = vec![];
     let test1 = BitVec::from_elem(8, true);
-    let test2 = BitVec::from_bytes(&[0b11110000,]);
-    let test3 = BitVec::from_bytes(&[0b11110011,]);
+    let test2 = BitVec::from_bytes(&[0b11110000]);
+    let test3 = BitVec::from_bytes(&[0b11110011]);
     test_vec.push(test1);
     test_vec.push(test2);
     test_vec.push(test3);
     let output = mass_intersect(test_vec);
-    let result = Some(BitVec::from_bytes(&[0b11110000,]));
+    let result = Some(BitVec::from_bytes(&[0b11110000]));
     assert_eq!(output, result);
 }
