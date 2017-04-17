@@ -1,15 +1,21 @@
 #![allow(dead_code)]
 
-use utils;
+use utils::*;
 
 use bit_vec::BitVec;
-use sourceimage::{RGB, SeedImage};
+use sourceimage::{Color, SeedImage};
 use ndarray::prelude::*;
 
 use std::collections::HashMap;
 use std::cell::RefCell;
 use std::{f64, usize};
+use std::hash::Hash;
 
+enum ModelError {
+    NoValidStates((usize, usize)),
+    UnexpectedNaN((usize, usize)),
+    AllStatesDecided,
+}
 
 #[derive(Debug)]
 struct UncertainCell {
@@ -25,11 +31,6 @@ impl UncertainCell {
             possible_colors: possible_colors,
             possible_states: possible_states,
         }
-    }
-
-    #[inline(always)]
-    pub fn valid_color(&self, palette_index: usize) -> bool {
-        self.possible_colors.borrow().get(palette_index).expect("Index out of range!")
     }
 
     pub fn entropy<T>(&self, concrete_states: &[(T, usize)]) -> Option<f64> {
@@ -60,7 +61,6 @@ impl UncertainCell {
                 let x = count as f64 / possible_state_count;
                 x * x.ln()
             })
-            .map(|x| x * x.ln())
             .sum();
 
         Some(-entropy)
@@ -71,7 +71,7 @@ impl UncertainCell {
         /// Marks all but a single state of the BitVec as forbidden, randomly chosen
         /// from the states still permitted and weighted by their frequency in the original image.
         let mut possible_states = self.possible_states.borrow_mut();
-        let chosen_state = utils::masked_weighted_choice(concrete_states, &*possible_states);
+        let chosen_state = masked_weighted_choice(concrete_states, &*possible_states).unwrap();
         possible_states.clear();
         possible_states.set(chosen_state, true);
     }
@@ -80,8 +80,8 @@ impl UncertainCell {
 
 struct OverlappingModel {
     model: Array2<UncertainCell>,
-    palette: Vec<RGB>,
-    states: Vec<(Array2<RGB>, usize)>,
+    palette: Vec<Color>,
+    states: Vec<(Array2<Color>, usize)>,
     state_size: usize,
 }
 
@@ -136,49 +136,56 @@ impl OverlappingModel {
         }
     }
 
-    fn color_to_index(&self, color: &RGB) -> usize {
+    fn color_to_index(&self, color: &Color) -> usize {
         self.palette.binary_search(color).expect("Color not found in palette!")
     }
 
-    fn valid_coordinate(&self, coord: (usize, usize)) -> bool {
-        let (y, x) = coord;
-        let (self_y, self_x) = self.model.dim();
-        (y < self_y) && (x < self_x)
-    }
 
-    fn valid_states_at_position(&self, position: (usize, usize)) -> Vec<usize> {
-        let p = position;
-        let mut valid_state_indices = Vec::<usize>::with_capacity(self.states.len());
+    fn valid_states_at_position(&self, position: (usize, usize)) -> BitVec {
+        /// Queries an NxN grid with the top left at function argument "position" for the states
+        /// that their current color possibilities allow, then takes the intersection of all of
+        /// those possibilites. This function assumes that input position is valid.
 
-        'state: for (state_index, state) in self.states.iter().map(|&(ref s, _)| s).enumerate() {
-            for (coord, color) in state.indexed_iter() {
-                let color = self.color_to_index(color);
-                let offset_coord = (p.0 + coord.0, p.1 + coord.1);
-                if !self.valid_coordinate(offset_coord) {continue 'state;}
-                if !self.model[offset_coord].valid_color(color) {continue 'state;}
-            }
-            valid_state_indices.push(state_index);
+        let s = self.state_size;
+        let s_2 = s * s;
+        let mut patch_possibilites = Vec::<BitVec>::with_capacity(s_2);
 
+        for t in 0..s_2 {
+            let pixel_coords = (t / s, t % s);
+            let cell_coords = (pixel_coords.0 + position.0, pixel_coords.1 + position.1);
 
+            let cell_states = self.model[cell_coords].possible_states.borrow();
+            let color_states = self.model[cell_coords].possible_colors.borrow();
+
+            let new_cell_states: BitVec = cell_states.iter()
+                .enumerate()
+                .map(|(i, x)| if x {
+                    let c = self.color_to_index(&self.states[i].0[pixel_coords]);
+                    color_states.get(c).unwrap()
+                } else {
+                    false
+                })
+                .collect();
+
+            patch_possibilites.push(new_cell_states);
         }
 
-        valid_state_indices
+        mass_intersect(patch_possibilites).unwrap()
     }
 
-    fn build_color_palette(image_data: &Array2<RGB>) -> Vec<RGB> {
-        let mut palette: Vec<RGB> = image_data.iter().cloned().collect();
+    fn build_color_palette(image_data: &Array2<Color>) -> Vec<Color> {
+        let mut palette: Vec<Color> = image_data.iter().cloned().collect();
         palette.sort();
         palette.dedup();
         palette
     }
 
-    fn build_block_frequency_map(image_data: &Array2<RGB>,
+    fn build_block_frequency_map<T: Copy + Eq + Hash>(image_data: &Array2<T>,
                                  block_size: usize)
-                                 -> Vec<(Array2<RGB>, usize)> {
+                                 -> Vec<(Array2<T>, usize)> {
         let mut block_counts = HashMap::new();
 
         //TODO augment with rotations and reflections
-
         for block in image_data.windows((block_size, block_size)) {
             let block = block.to_owned();
             let count = block_counts.entry(block).or_insert(0);
@@ -189,9 +196,42 @@ impl OverlappingModel {
     }
 }
 
+#[test]
+fn color_palette_test() {
+    let array = Array2::from_shape_vec((3, 3), vec![Color(0, 0, 0),
+                                                    Color(1, 1, 1),
+                                                    Color(1, 1, 1),
+                                                    Color(0, 0, 0),
+                                                    Color(0, 0, 1),
+                                                    Color(0, 0, 1),
+                                                    Color(0, 0, 1),
+                                                    Color(0, 0, 1),
+                                                    Color(0, 0, 2)]).unwrap();
 
-enum ModelError {
-    NoValidStates((usize, usize)),
-    UnexpectedNaN((usize, usize)),
-    AllStatesDecided,
+    let p = vec![Color(0, 0, 0), Color(0, 0, 1), Color(0, 0, 2), Color(1, 1, 1)];
+    let p_test = OverlappingModel::build_color_palette(&array);
+    assert_eq!(p, p_test);
+}
+
+#[test]
+fn build_block_frequency_map_test_1() {
+    let array = Array2::from_shape_vec((3, 3), vec![Color(0, 0, 0),
+                                                    Color(1, 1, 1),
+                                                    Color(1, 1, 1),
+                                                    Color(0, 0, 0),
+                                                    Color(0, 0, 1),
+                                                    Color(0, 0, 1),
+                                                    Color(0, 0, 1),
+                                                    Color(0, 0, 1),
+                                                    Color(0, 0, 2)]).unwrap();
+    let p_test = OverlappingModel::build_block_frequency_map(&array, 2);
+    assert_eq!(p_test.len(), 4);
+}
+
+#[test]
+fn build_block_frequency_map_test_2() {
+    let array: Array2<usize> = Array2::eye(10);
+    let p_test = OverlappingModel::build_block_frequency_map(&array, 2);
+    let p_count: usize = p_test.iter().map(|&(_, u)| u).sum();
+    assert_eq!(p_count, 81);
 }
