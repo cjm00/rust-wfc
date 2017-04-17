@@ -7,11 +7,12 @@ use std::path::Path;
 use std::io::BufWriter;
 
 
+/// A tuple struct of red, green, blue.
 #[derive(Copy, Clone, Hash, Debug, PartialEq, PartialOrd, Ord, Eq)]
-pub struct RGB(u8, u8, u8);
+pub struct Color(pub u8, pub u8, pub u8);
 
 pub struct SeedImage {
-    pub image_data: Array2<RGB>,
+    pub image_data: Array2<Color>,
     pub image_info: OutputInfo,
 }
 
@@ -54,7 +55,7 @@ impl SeedImage {
 
 
 
-    fn load_file(file_path: &str) -> Result<(Array2<RGB>, OutputInfo), String> {
+    fn load_file(file_path: &str) -> Result<(Array2<Color>, OutputInfo), String> {
         let dec = Decoder::new(File::open(file_path).unwrap());
         let (info, mut reader) = dec.read_info().unwrap();
         match (info.color_type, info.bit_depth) {
@@ -69,7 +70,7 @@ impl SeedImage {
 
         let mut buf = vec![0; info.buffer_size()];
         reader.next_frame(&mut buf).unwrap();
-        let image_data: Vec<_> = buf.chunks(3).map(|s| RGB(s[0], s[1], s[2])).collect();
+        let image_data: Vec<_> = buf.chunks(3).map(|s| Color(s[0], s[1], s[2])).collect();
         let image_data =
             Array::from_shape_vec((info.height as usize, info.width as usize), image_data).unwrap();
         Ok((image_data, info))
