@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+
 use utils::*;
 
 use bit_vec::BitVec;
@@ -10,11 +11,18 @@ use std::collections::HashMap;
 use std::cell::RefCell;
 use std::{f64, usize};
 use std::hash::Hash;
+use std::convert::{TryInto};
 
 enum ModelError {
     NoValidStates((usize, usize)),
     UnexpectedNaN((usize, usize)),
     AllStatesDecided,
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+enum WrappingType {
+    NoWrap,
+    Torus
 }
 
 #[derive(Debug)]
@@ -83,6 +91,9 @@ struct OverlappingModel {
     palette: Vec<Color>,
     states: Vec<(Array2<Color>, usize)>,
     state_size: usize,
+    wrap: WrappingType,
+    color_changes: RefCell<Vec<(usize, usize)>>,
+    state_changes: RefCell<Vec<(usize, usize)>>,
 }
 
 impl OverlappingModel {
@@ -104,11 +115,16 @@ impl OverlappingModel {
         }
         let model = Array::from_shape_vec((y, x), model_data).unwrap();
 
+        //TODO add wrapping patches
+
         OverlappingModel {
             model: model,
             palette: palette,
             states: states,
             state_size: block_size,
+            wrap: WrappingType::NoWrap,
+            color_changes: RefCell::new(vec![]),
+            state_changes: RefCell::new(vec![]),
         }
     }
 
@@ -144,19 +160,23 @@ impl OverlappingModel {
     fn valid_states_at_position(&self, position: (usize, usize)) -> BitVec {
         /// Queries an NxN grid with the top left at function argument "position" for the states
         /// that their current color possibilities allow, then takes the intersection of all of
-        /// those possibilites. This function assumes that input position is valid.
+        /// those possibilites.
 
         let s = self.state_size;
-        let s_2 = s * s;
-        let mut patch_possibilites = Vec::<BitVec>::with_capacity(s_2);
+        let wrap = self.wrap;
+        let mut patch_possibilites = Vec::<BitVec>::with_capacity(s*s);
+        let cell_states = self.model[position].possible_states.borrow();
 
-        for t in 0..s_2 {
+        for t in 0..s*s {
             let pixel_coords = (t / s, t % s);
             let cell_coords = (pixel_coords.0 + position.0, pixel_coords.1 + position.1);
+            match wrap {
+                WrappingType::NoWrap => if !self.valid_coord(cell_coords) {continue},
+                WrappingType::Torus => unimplemented!()
+            }
 
-            let cell_states = self.model[cell_coords].possible_states.borrow();
+
             let color_states = self.model[cell_coords].possible_colors.borrow();
-
             let new_cell_states: BitVec = cell_states.iter()
                 .enumerate()
                 .map(|(i, x)| if x {
@@ -171,6 +191,56 @@ impl OverlappingModel {
         }
 
         mass_intersect(patch_possibilites).unwrap()
+    }
+
+    fn valid_colors_at_position(&self, position: (usize, usize)) -> BitVec {
+        // Much cast, very wow
+        let wrap = self.wrap;
+        let s: isize = self.state_size.try_into().unwrap();
+        let mut patch_possibilites = Vec::<BitVec>::with_capacity((s*s) as usize);
+        let pos = (position.0 as isize, position.1 as isize);
+
+        for t in 0..s*s {
+            let pixel_coords = ((t / s) as usize, (t % s) as usize);
+            let offset = (pixel_coords.0 as isize, pixel_coords.1 as isize);
+            let cell_coords = (pos.0 - offset.0, pos.1 - offset.1);
+            match wrap {
+                WrappingType::NoWrap => if !self.valid_coord(cell_coords) {continue},
+                WrappingType::Torus => unimplemented!()
+            }
+            let cell_coords = (cell_coords.0 as usize, cell_coords.1 as usize);
+
+            let cell_states = self.model[cell_coords].possible_states.borrow();
+
+            let mut new_color_states: BitVec = BitVec::from_elem(self.palette.len(), false);
+
+            for state_index in cell_states.iter().enumerate().filter(|&(_, s)| s).map(|(i, _)| i) {
+                let v = self.color_to_index(&self.states[state_index].0[pixel_coords]);
+                new_color_states.set(v, true);
+            }
+            patch_possibilites.push(new_color_states);
+
+        }
+
+        mass_intersect(patch_possibilites).unwrap()
+    }
+
+    fn valid_coord<T: TryInto<usize>>(&self, coord: (T, T)) -> bool {
+        let y: usize = match coord.0.try_into() {
+            Ok(u) => u,
+            Err(_) => return false
+        };
+        let x: usize = match coord.1.try_into() {
+            Ok(u) => u,
+            Err(_) => return false
+        };
+        let (safe_y, safe_x) = self.model.dim();
+
+        (y < safe_y) && (x < safe_x)
+    }
+
+    fn wrap_coord<T: TryInto<usize>>(&self, coord: (T, T)) -> Result<(usize, usize), ()> {
+        unimplemented!()
     }
 
     fn build_color_palette(image_data: &Array2<Color>) -> Vec<Color> {
