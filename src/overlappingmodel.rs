@@ -7,12 +7,13 @@ use bit_vec::BitVec;
 use sourceimage::{Color, SeedImage};
 use png::{Encoder, ColorType, BitDepth, HasParameters};
 use ndarray::prelude::*;
+use rand;
 
 use std::collections::HashMap;
 use std::cell::RefCell;
 use std::{f64, usize};
 use std::hash::Hash;
-use std::convert::{TryInto};
+use std::convert::TryInto;
 use std::collections::HashSet;
 use std::fs::File;
 use std::path::Path;
@@ -28,7 +29,7 @@ pub enum ModelError {
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 enum WrappingType {
     NoWrap,
-    Torus
+    Torus,
 }
 
 #[derive(Debug)]
@@ -90,8 +91,14 @@ impl UncertainCell {
         possible_states.set(chosen_state, true);
     }
 
+    pub fn consistent(&self) -> bool {
+        //! Returns true if any states are permitted.
+        self.possible_colors.borrow().any()
+    }
+
     pub fn to_color(&self, palette: &[Color]) -> Color {
         //! Returns the average color of all remaining possible colors.
+        if !self.consistent() { return Color(255, 0, 128);}
         let mut r = 0usize;
         let mut g = 0usize;
         let mut b = 0usize;
@@ -128,8 +135,8 @@ impl OverlappingModel {
                            block_size: usize)
                            -> OverlappingModel {
         let palette = OverlappingModel::build_color_palette(&seed_image.image_data);
-        let states = OverlappingModel::build_block_frequency_map(&seed_image.image_data,
-                                                                 block_size);
+        let states = OverlappingModel::build_augmented_block_frequency_map(&seed_image.image_data,
+                                                                           block_size);
 
         let num_colors = palette.len();
         let num_states = states.len();
@@ -181,7 +188,6 @@ impl OverlappingModel {
                 Err(NoValidStates(u)) => return Err(NoValidStates(u)),
                 Err(UnexpectedNaN(u)) => return Err(UnexpectedNaN(u)),
             };
-            println!("Collapsing point: {:?}", collapse_point);
             self.model[collapse_point].collapse(&self.states);
             let changes = self.get_downstream_coordinates(collapse_point);
             {
@@ -200,9 +206,14 @@ impl OverlappingModel {
                     state_changes.clear();
                 }
                 {
+                    if self.model.iter().any(|s| !s.consistent()) {break}
+                }
+                {
                     let color_changes = self.color_changes.borrow();
                     let state_changes = self.state_changes.borrow();
-                    if color_changes.is_empty() && state_changes.is_empty() {break 'inner;}
+                    if color_changes.is_empty() && state_changes.is_empty() {
+                        break 'inner;
+                    }
                 }
             }
         }
@@ -215,7 +226,9 @@ impl OverlappingModel {
             match cell.entropy(&self.states) {
                 None => return Err(ModelError::NoValidStates(index)),
                 Some(u) if u > 0. => {
-                    if u <= entropy {
+                    let noise = rand::random::<f64>() * 1e-6;
+                    let u = u + noise;
+                    if u < entropy {
                         entropy = u;
                         output = Some(index);
                     } else if u.is_nan() {
@@ -237,52 +250,55 @@ impl OverlappingModel {
     }
 
     fn get_downstream_coordinates(&self, position: (usize, usize)) -> HashSet<(usize, usize)> {
-      //! This function generates a set of coordinates representing the cells that need to be
-      //! updated due to the cell at position having changes made. The coordinates returned are
-      //! those in an NxN box with 'position' at the top left, or concretely in the 2x2 case:
-      //!  _____________________________
-      //! |     pos     | pos + (0, 1) |
-      //! ------------------------------
-      //! |pos + (1, 0) | pos + (1, 1) |
-      //! -----------------------------
+        //! This function generates a set of coordinates representing the cells that need to be
+        //! updated due to the cell at position having changes made. The coordinates returned are
+        //! those in an NxN box with 'position' at the top left, or concretely in the 2x2 case:
+        //!  _____________________________
+        //! |     pos     | pos + (0, 1) |
+        //! ------------------------------
+        //! |pos + (1, 0) | pos + (1, 1) |
+        //! -----------------------------
 
-      let s = self.state_size;
-      let mut output = HashSet::with_capacity(s * s);
-      match self.wrap {
-        WrappingType::NoWrap => {
-          for t in 0..s*s {
-            let offset = (t / s, t % s);
-            let coordinate = (position.0 + offset.0, position.1 + offset.1);
-            if self.valid_coord(coordinate) {output.insert(coordinate);};
-          }
-        },
-        WrappingType::Torus => unimplemented!()
-      }
-      output
+        let s = self.state_size;
+        let mut output = HashSet::with_capacity(s * s);
+        match self.wrap {
+            WrappingType::NoWrap => {
+                for t in 0..s * s {
+                    let offset = (t / s, t % s);
+                    let coordinate = (position.0 + offset.0, position.1 + offset.1);
+                    if self.valid_coord(coordinate) {
+                        output.insert(coordinate);
+                    };
+                }
+            }
+            WrappingType::Torus => unimplemented!(),
+        }
+        output
     }
 
     fn get_upstream_coordinates(&self, position: (usize, usize)) -> HashSet<(usize, usize)> {
-      //! This function works similarly to get_downstream_coordinates, but returns coordinates
-      //! up and to the left of the input position and does some additional bounds checking
-      //! to test for potentially negative coordinates before casting back to (usize, usize).
+        //! This function works similarly to get_downstream_coordinates, but returns coordinates
+        //! up and to the left of the input position and does some additional bounds checking
+        //! to test for potentially negative coordinates before casting back to (usize, usize).
 
-      let s = self.state_size;
-      let mut output = HashSet::with_capacity(s * s);
-      let s = s as isize;
-      match self.wrap {
-        WrappingType::NoWrap => {
-          for t in 0..s*s {
-            let offset = (t / s, t % s);
-            let coordinate = (position.0 as isize - offset.0, position.1 as isize - offset.1);
-            if self.valid_coord(coordinate) {
-              let coordinate = (coordinate.0 as usize, coordinate.1 as usize);
-              output.insert(coordinate);
-            };
-          }
-        },
-        WrappingType::Torus => unimplemented!()
-      }
-      output
+        let s = self.state_size;
+        let mut output = HashSet::with_capacity(s * s);
+        let s = s as isize;
+        match self.wrap {
+            WrappingType::NoWrap => {
+                for t in 0..s * s {
+                    let offset = (t / s, t % s);
+                    let coordinate = (position.0 as isize - offset.0,
+                                      position.1 as isize - offset.1);
+                    if self.valid_coord(coordinate) {
+                        let coordinate = (coordinate.0 as usize, coordinate.1 as usize);
+                        output.insert(coordinate);
+                    };
+                }
+            }
+            WrappingType::Torus => unimplemented!(),
+        }
+        output
     }
 
 
@@ -318,15 +334,19 @@ impl OverlappingModel {
 
         let s = self.state_size;
         let wrap = self.wrap;
-        let mut patch_possibilites = Vec::<BitVec>::with_capacity(s*s);
+        let mut patch_possibilites = Vec::<BitVec>::with_capacity(s * s);
         let cell_states = self.model[position].possible_states.borrow();
 
-        for t in 0..s*s {
+        for t in 0..s * s {
             let pixel_coords = (t / s, t % s);
             let cell_coords = (pixel_coords.0 + position.0, pixel_coords.1 + position.1);
             match wrap {
-                WrappingType::NoWrap => if !self.valid_coord(cell_coords) {continue},
-                WrappingType::Torus => unimplemented!()
+                WrappingType::NoWrap => {
+                    if !self.valid_coord(cell_coords) {
+                        continue;
+                    }
+                }
+                WrappingType::Torus => unimplemented!(),
             }
 
 
@@ -350,16 +370,20 @@ impl OverlappingModel {
     fn valid_colors_at_position(&self, position: (usize, usize)) -> BitVec {
         let wrap = self.wrap;
         let s: isize = self.state_size.try_into().unwrap();
-        let mut patch_possibilites = Vec::<BitVec>::with_capacity((s*s) as usize);
+        let mut patch_possibilites = Vec::<BitVec>::with_capacity((s * s) as usize);
         let pos = (position.0 as isize, position.1 as isize);
 
-        for t in 0..s*s {
+        for t in 0..s * s {
             let pixel_coords = ((t / s) as usize, (t % s) as usize);
             let offset = (pixel_coords.0 as isize, pixel_coords.1 as isize);
             let cell_coords = (pos.0 - offset.0, pos.1 - offset.1);
             match wrap {
-                WrappingType::NoWrap => if !self.valid_coord(cell_coords) {continue},
-                WrappingType::Torus => unimplemented!()
+                WrappingType::NoWrap => {
+                    if !self.valid_coord(cell_coords) {
+                        continue;
+                    }
+                }
+                WrappingType::Torus => unimplemented!(),
             }
             let cell_coords = (cell_coords.0 as usize, cell_coords.1 as usize);
 
@@ -381,11 +405,11 @@ impl OverlappingModel {
     fn valid_coord<T: TryInto<usize>>(&self, coord: (T, T)) -> bool {
         let y: usize = match coord.0.try_into() {
             Ok(u) => u,
-            Err(_) => return false
+            Err(_) => return false,
         };
         let x: usize = match coord.1.try_into() {
             Ok(u) => u,
-            Err(_) => return false
+            Err(_) => return false,
         };
         let (safe_y, safe_x) = self.model.dim();
 
@@ -404,11 +428,10 @@ impl OverlappingModel {
     }
 
     fn build_block_frequency_map<T: Copy + Eq + Hash>(image_data: &Array2<T>,
-                                 block_size: usize)
-                                 -> Vec<(Array2<T>, usize)> {
+                                                      block_size: usize)
+                                                      -> Vec<(Array2<T>, usize)> {
         let mut block_counts = HashMap::new();
 
-        //TODO augment with rotations and reflections
         for block in image_data.windows((block_size, block_size)) {
             let block = block.to_owned();
             let count = block_counts.entry(block).or_insert(0);
@@ -417,19 +440,38 @@ impl OverlappingModel {
 
         block_counts.into_iter().collect()
     }
+
+    fn build_augmented_block_frequency_map<T: Copy + Eq + Hash>(image_data: &Array2<T>,
+                                                                block_size: usize)
+                                                                -> Vec<(Array2<T>, usize)> {
+        let mut block_counts = HashMap::<Array2<_>, usize>::new();
+
+        for block in image_data.windows((block_size, block_size)) {
+            let blocks = generate_rotations_and_reflections(&block.to_owned());
+            for b in blocks {
+                let count = block_counts.entry(b).or_insert(0);
+                *count += 1;
+            }
+        }
+
+        block_counts.into_iter().collect()
+
+    }
 }
 
 #[test]
 fn color_palette_test() {
-    let array = Array2::from_shape_vec((3, 3), vec![Color(0, 0, 0),
-                                                    Color(1, 1, 1),
-                                                    Color(1, 1, 1),
-                                                    Color(0, 0, 0),
-                                                    Color(0, 0, 1),
-                                                    Color(0, 0, 1),
-                                                    Color(0, 0, 1),
-                                                    Color(0, 0, 1),
-                                                    Color(0, 0, 2)]).unwrap();
+    let array = Array2::from_shape_vec((3, 3),
+                                       vec![Color(0, 0, 0),
+                                            Color(1, 1, 1),
+                                            Color(1, 1, 1),
+                                            Color(0, 0, 0),
+                                            Color(0, 0, 1),
+                                            Color(0, 0, 1),
+                                            Color(0, 0, 1),
+                                            Color(0, 0, 1),
+                                            Color(0, 0, 2)])
+        .unwrap();
 
     let p = vec![Color(0, 0, 0), Color(0, 0, 1), Color(0, 0, 2), Color(1, 1, 1)];
     let p_test = OverlappingModel::build_color_palette(&array);
@@ -438,15 +480,17 @@ fn color_palette_test() {
 
 #[test]
 fn build_block_frequency_map_test_1() {
-    let array = Array2::from_shape_vec((3, 3), vec![Color(0, 0, 0),
-                                                    Color(1, 1, 1),
-                                                    Color(1, 1, 1),
-                                                    Color(0, 0, 0),
-                                                    Color(0, 0, 1),
-                                                    Color(0, 0, 1),
-                                                    Color(0, 0, 1),
-                                                    Color(0, 0, 1),
-                                                    Color(0, 0, 2)]).unwrap();
+    let array = Array2::from_shape_vec((3, 3),
+                                       vec![Color(0, 0, 0),
+                                            Color(1, 1, 1),
+                                            Color(1, 1, 1),
+                                            Color(0, 0, 0),
+                                            Color(0, 0, 1),
+                                            Color(0, 0, 1),
+                                            Color(0, 0, 1),
+                                            Color(0, 0, 1),
+                                            Color(0, 0, 2)])
+        .unwrap();
     let p_test = OverlappingModel::build_block_frequency_map(&array, 2);
     assert_eq!(p_test.len(), 4);
 }

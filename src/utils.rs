@@ -3,10 +3,35 @@ use rand::distributions::{Range, IndependentSample};
 use rand;
 use bit_vec::BitVec;
 
+pub fn generate_rotations_and_reflections<T: Copy>(image_data: &Array2<T>) -> Vec<Array2<T>> {
+    let mut output = Vec::with_capacity(8);
+    let input = image_data.to_owned();
+    let input1 = rotate_90_clockwise(&input);
+    let input2 = rotate_90_clockwise(&input1);
+    let input3 = rotate_90_clockwise(&input2);
+    let input4 = reflect(&input);
+    let input5 = rotate_90_clockwise(&input);
+    let input6 = rotate_90_clockwise(&input);
+    let input7 = rotate_90_clockwise(&input);
+    output.push(input);
+    output.push(input1);
+    output.push(input2);
+    output.push(input3);
+    output.push(input4);
+    output.push(input5);
+    output.push(input6);
+    output.push(input7);
+    output
+}
+
 pub fn rotate_90_clockwise<T: Copy>(image_data: &Array2<T>) -> Array2<T> {
     let mut output = image_data.t();
     output.invert_axis(Axis(1));
     output.to_owned()
+}
+
+pub fn reflect<T: Copy>(image_data: &Array2<T>) -> Array2<T> {
+    image_data.t().to_owned()
 }
 
 pub fn masked_weighted_choice<T, M>(input: &[(T, usize)], mask: &M) -> Option<usize>
