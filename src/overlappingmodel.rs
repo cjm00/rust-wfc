@@ -5,6 +5,7 @@ use utils::*;
 
 use bit_vec::BitVec;
 use sourceimage::{Color, SeedImage};
+use png::{Encoder, ColorType, BitDepth, HasParameters};
 use ndarray::prelude::*;
 
 use std::collections::HashMap;
@@ -12,8 +13,13 @@ use std::cell::RefCell;
 use std::{f64, usize};
 use std::hash::Hash;
 use std::convert::{TryInto};
+use std::collections::HashSet;
+use std::fs::File;
+use std::path::Path;
+use std::io::BufWriter;
 
-enum ModelError {
+#[derive(Debug, Copy, Clone)]
+pub enum ModelError {
     NoValidStates((usize, usize)),
     UnexpectedNaN((usize, usize)),
     AllStatesDecided,
@@ -83,17 +89,37 @@ impl UncertainCell {
         possible_states.clear();
         possible_states.set(chosen_state, true);
     }
+
+    pub fn to_color(&self, palette: &[Color]) -> Color {
+        //! Returns the average color of all remaining possible colors.
+        let mut r = 0usize;
+        let mut g = 0usize;
+        let mut b = 0usize;
+        let mut count = 0usize;
+        let colors = self.possible_colors.borrow();
+
+        for (index, c) in palette.iter().enumerate() {
+            if colors.get(index).unwrap() {
+                count += 1;
+                r += c.0 as usize;
+                g += c.1 as usize;
+                b += c.2 as usize;
+            }
+        }
+
+        Color((r / count) as u8, (g / count) as u8, (b / count) as u8)
+    }
 }
 
 
-struct OverlappingModel {
+pub struct OverlappingModel {
     model: Array2<UncertainCell>,
     palette: Vec<Color>,
     states: Vec<(Array2<Color>, usize)>,
     state_size: usize,
     wrap: WrappingType,
-    color_changes: RefCell<Vec<(usize, usize)>>,
-    state_changes: RefCell<Vec<(usize, usize)>>,
+    color_changes: RefCell<HashSet<(usize, usize)>>,
+    state_changes: RefCell<HashSet<(usize, usize)>>,
 }
 
 impl OverlappingModel {
@@ -123,8 +149,62 @@ impl OverlappingModel {
             states: states,
             state_size: block_size,
             wrap: WrappingType::NoWrap,
-            color_changes: RefCell::new(vec![]),
-            state_changes: RefCell::new(vec![]),
+            color_changes: RefCell::new(HashSet::new()),
+            state_changes: RefCell::new(HashSet::new()),
+        }
+    }
+
+    pub fn to_image(&self, file_path: &str) {
+        let (y, x) = self.model.dim();
+        let file_path = Path::new(file_path);
+        let file = File::create(file_path).unwrap();
+        let ref mut w = BufWriter::new(file);
+        let mut encoder = Encoder::new(w, x as u32, y as u32);
+        encoder.set(ColorType::RGB).set(BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+
+        let mut raw_data = Vec::<u8>::with_capacity(self.model.len() * 3);
+        for rgb in self.model.iter().map(|x| x.to_color(&self.palette)) {
+            raw_data.push(rgb.0);
+            raw_data.push(rgb.1);
+            raw_data.push(rgb.2);
+        }
+        writer.write_image_data(&raw_data).unwrap();
+    }
+
+    pub fn collapse_and_propagate(&self) -> Result<(), ModelError> {
+        use overlappingmodel::ModelError::*;
+        loop {
+            let collapse_point = match self.find_lowest_nonzero_entropy_coordinates() {
+                Ok(u) => u,
+                Err(AllStatesDecided) => return Ok(()),
+                Err(NoValidStates(u)) => return Err(NoValidStates(u)),
+                Err(UnexpectedNaN(u)) => return Err(UnexpectedNaN(u)),
+            };
+            println!("Collapsing point: {:?}", collapse_point);
+            self.model[collapse_point].collapse(&self.states);
+            let changes = self.get_downstream_coordinates(collapse_point);
+            {
+                self.color_changes.borrow_mut().extend(changes);
+            }
+
+            'inner: loop {
+                {
+                    let mut color_changes = self.color_changes.borrow_mut();
+                    color_changes.iter().map(|&c| self.update_colors_at_position(c)).count();
+                    color_changes.clear();
+                }
+                {
+                    let mut state_changes = self.state_changes.borrow_mut();
+                    state_changes.iter().map(|&c| self.update_states_at_position(c)).count();
+                    state_changes.clear();
+                }
+                {
+                    let color_changes = self.color_changes.borrow();
+                    let state_changes = self.state_changes.borrow();
+                    if color_changes.is_empty() && state_changes.is_empty() {break 'inner;}
+                }
+            }
         }
     }
 
@@ -156,6 +236,80 @@ impl OverlappingModel {
         self.palette.binary_search(color).expect("Color not found in palette!")
     }
 
+    fn get_downstream_coordinates(&self, position: (usize, usize)) -> HashSet<(usize, usize)> {
+      //! This function generates a set of coordinates representing the cells that need to be
+      //! updated due to the cell at position having changes made. The coordinates returned are
+      //! those in an NxN box with 'position' at the top left, or concretely in the 2x2 case:
+      //!  _____________________________
+      //! |     pos     | pos + (0, 1) |
+      //! ------------------------------
+      //! |pos + (1, 0) | pos + (1, 1) |
+      //! -----------------------------
+
+      let s = self.state_size;
+      let mut output = HashSet::with_capacity(s * s);
+      match self.wrap {
+        WrappingType::NoWrap => {
+          for t in 0..s*s {
+            let offset = (t / s, t % s);
+            let coordinate = (position.0 + offset.0, position.1 + offset.1);
+            if self.valid_coord(coordinate) {output.insert(coordinate);};
+          }
+        },
+        WrappingType::Torus => unimplemented!()
+      }
+      output
+    }
+
+    fn get_upstream_coordinates(&self, position: (usize, usize)) -> HashSet<(usize, usize)> {
+      //! This function works similarly to get_downstream_coordinates, but returns coordinates
+      //! up and to the left of the input position and does some additional bounds checking
+      //! to test for potentially negative coordinates before casting back to (usize, usize).
+
+      let s = self.state_size;
+      let mut output = HashSet::with_capacity(s * s);
+      let s = s as isize;
+      match self.wrap {
+        WrappingType::NoWrap => {
+          for t in 0..s*s {
+            let offset = (t / s, t % s);
+            let coordinate = (position.0 as isize - offset.0, position.1 as isize - offset.1);
+            if self.valid_coord(coordinate) {
+              let coordinate = (coordinate.0 as usize, coordinate.1 as usize);
+              output.insert(coordinate);
+            };
+          }
+        },
+        WrappingType::Torus => unimplemented!()
+      }
+      output
+    }
+
+
+    fn update_states_at_position(&self, position: (usize, usize)) {
+        let new_states = self.valid_states_at_position(position);
+        let changed: bool;
+        {
+            changed = self.model[position].possible_states.borrow_mut().intersect(&new_states);
+        }
+        if changed {
+            let states_that_need_to_be_looked_at = self.get_downstream_coordinates(position);
+            self.color_changes.borrow_mut().extend(states_that_need_to_be_looked_at);
+        }
+    }
+
+    fn update_colors_at_position(&self, position: (usize, usize)) {
+        let new_colors = self.valid_colors_at_position(position);
+        let changed: bool;
+        {
+            changed = self.model[position].possible_colors.borrow_mut().intersect(&new_colors);
+        }
+        if changed {
+            let states_that_need_to_be_looked_at = self.get_upstream_coordinates(position);
+            self.state_changes.borrow_mut().extend(states_that_need_to_be_looked_at)
+        }
+
+    }
 
     fn valid_states_at_position(&self, position: (usize, usize)) -> BitVec {
         /// Queries an NxN grid with the top left at function argument "position" for the states
@@ -194,7 +348,6 @@ impl OverlappingModel {
     }
 
     fn valid_colors_at_position(&self, position: (usize, usize)) -> BitVec {
-        // Much cast, very wow
         let wrap = self.wrap;
         let s: isize = self.state_size.try_into().unwrap();
         let mut patch_possibilites = Vec::<BitVec>::with_capacity((s*s) as usize);
