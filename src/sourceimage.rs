@@ -36,7 +36,7 @@ impl SeedImage {
         let (y, x) = self.image_data.dim();
         let file_path = Path::new(file_path);
         let file = File::create(file_path).unwrap();
-        let ref mut w = BufWriter::new(file);
+        let w = &mut BufWriter::new(file);
         let mut encoder = Encoder::new(w, x as u32, y as u32);
         encoder.set(ColorType::RGB).set(BitDepth::Eight);
         let mut writer = encoder.write_header().unwrap();

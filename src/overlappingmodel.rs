@@ -19,6 +19,8 @@ use std::fs::File;
 use std::path::Path;
 use std::io::BufWriter;
 
+const NOISE_LEVEL: f64 = 1.;
+
 #[derive(Debug, Copy, Clone)]
 pub enum ModelError {
     NoValidStates((usize, usize)),
@@ -50,7 +52,7 @@ impl UncertainCell {
 
     pub fn entropy<T>(&self, concrete_states: &[(T, usize)]) -> Option<f64> {
         let possible_states = self.possible_states.borrow();
-        debug_assert!(possible_states.len() == concrete_states.len());
+        debug_assert_eq!(possible_states.len(), concrete_states.len());
 
         if possible_states.none() {
             return None;
@@ -165,7 +167,7 @@ impl OverlappingModel {
         let (y, x) = self.model.dim();
         let file_path = Path::new(file_path);
         let file = File::create(file_path).unwrap();
-        let ref mut w = BufWriter::new(file);
+        let w = &mut BufWriter::new(file);
         let mut encoder = Encoder::new(w, x as u32, y as u32);
         encoder.set(ColorType::RGB).set(BitDepth::Eight);
         let mut writer = encoder.write_header().unwrap();
@@ -226,7 +228,7 @@ impl OverlappingModel {
             match cell.entropy(&self.states) {
                 None => return Err(ModelError::NoValidStates(index)),
                 Some(u) if u > 0. => {
-                    let noise = rand::random::<f64>() * 1e-6;
+                    let noise = rand::random::<f64>() * NOISE_LEVEL;
                     let u = u + noise;
                     if u < entropy {
                         entropy = u;
@@ -328,9 +330,9 @@ impl OverlappingModel {
     }
 
     fn valid_states_at_position(&self, position: (usize, usize)) -> BitVec {
-        /// Queries an NxN grid with the top left at function argument "position" for the states
-        /// that their current color possibilities allow, then takes the intersection of all of
-        /// those possibilites.
+        //! Queries an NxN grid with the top left at function argument "position" for the states
+        //! that their current color possibilities allow, then takes the intersection of all of
+        //! those possibilites.
 
         let s = self.state_size;
         let wrap = self.wrap;
@@ -455,7 +457,6 @@ impl OverlappingModel {
         }
 
         block_counts.into_iter().collect()
-
     }
 }
 
