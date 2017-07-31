@@ -35,12 +35,14 @@ pub fn reflect<T: Copy>(image_data: &Array2<T>) -> Array2<T> {
 }
 
 pub fn masked_weighted_choice<T, M>(input: &[(T, usize)], mask: &M) -> Option<usize>
-    where for<'a> &'a M: IntoIterator<Item = bool>
+where
+    for<'a> &'a M: IntoIterator<Item = bool>,
 {
     /// Returns an index from the slice of (T, u) where u is the integer weight, i.e.
     /// [('a', 3), ('b', 1), ('c', 1)] returns 0 (the index of 'a') with probability 3/5
 
-    let total: usize = input.iter()
+    let total: usize = input
+        .iter()
         .map(|&(_, u)| u)
         .zip(mask.into_iter())
         .filter(|&(_, m)| m)
@@ -50,7 +52,11 @@ pub fn masked_weighted_choice<T, M>(input: &[(T, usize)], mask: &M) -> Option<us
     let mut rng = rand::thread_rng();
     let mut choice: usize = between.ind_sample(&mut rng);
 
-    for ((index, u), mask) in input.iter().map(|&(_, u)| u).enumerate().zip(mask.into_iter()) {
+    for ((index, u), mask) in
+        input.iter().map(|&(_, u)| u).enumerate().zip(
+            mask.into_iter(),
+        )
+    {
         if mask {
             if choice < u {
                 return Some(index);

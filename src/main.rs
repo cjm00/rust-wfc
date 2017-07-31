@@ -13,6 +13,7 @@ mod sourceimage;
 mod utils;
 mod offset;
 mod patch;
+mod shape;
 
 use chrono::prelude::*;
 
@@ -28,7 +29,7 @@ fn main() {
     if !(Path::new(OUTPUT_DIR).is_dir()) {
         match create_dir(OUTPUT_DIR) {
             Err(_) => panic!("Don't have permission to make files here"),
-            Ok(_)  => (),
+            Ok(_) => (),
         };
     }
 

@@ -61,10 +61,12 @@ impl SeedImage {
         match (info.color_type, info.bit_depth) {
             (ColorType::RGB, BitDepth::Eight) => {}
             (j, k) => {
-                return Err(format!("Wrong color type or bit depth. Found color type: {:?} and \
+                return Err(format!(
+                    "Wrong color type or bit depth. Found color type: {:?} and \
                                     bit depth: {:?}",
-                                   j,
-                                   k))
+                    j,
+                    k
+                ))
             }
         }
 

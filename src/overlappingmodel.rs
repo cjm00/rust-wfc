@@ -64,7 +64,8 @@ impl UncertainCell {
         };
 
         // Counts the number of possible states permitted by the UncertainCell
-        let possible_state_count: usize = concrete_states.iter()
+        let possible_state_count: usize = concrete_states
+            .iter()
             .map(|&(_, count)| count)
             .zip(possible_states.iter())
             .filter(|&(_, p)| p)
@@ -72,7 +73,8 @@ impl UncertainCell {
             .sum();
 
         let possible_state_count = possible_state_count as f64;
-        let entropy: f64 = concrete_states.iter()
+        let entropy: f64 = concrete_states
+            .iter()
             .map(|&(_, count)| count)
             .zip(possible_states.iter())
             .filter(|&(_, p)| p)
@@ -102,7 +104,9 @@ impl UncertainCell {
 
     pub fn to_color(&self, palette: &[Color]) -> Color {
         //! Returns the average color of all remaining possible colors.
-        if !self.consistent() { return Color(255, 0, 128);}
+        if !self.consistent() {
+            return Color(255, 0, 128);
+        }
         let mut r = 0usize;
         let mut g = 0usize;
         let mut b = 0usize;
@@ -134,13 +138,16 @@ pub struct OverlappingModel {
 }
 
 impl OverlappingModel {
-    pub fn from_seed_image(seed_image: SeedImage,
-                           output_dims: (usize, usize),
-                           block_size: usize)
-                           -> OverlappingModel {
+    pub fn from_seed_image(
+        seed_image: SeedImage,
+        output_dims: (usize, usize),
+        block_size: usize,
+    ) -> OverlappingModel {
         let palette = OverlappingModel::build_color_palette(&seed_image.image_data);
-        let states = OverlappingModel::build_augmented_block_frequency_map(&seed_image.image_data,
-                                                                           block_size);
+        let states = OverlappingModel::build_augmented_block_frequency_map(
+            &seed_image.image_data,
+            block_size,
+        );
 
         let num_colors = palette.len();
         let num_states = states.len();
@@ -201,16 +208,24 @@ impl OverlappingModel {
             'inner: loop {
                 {
                     let mut color_changes = self.color_changes.borrow_mut();
-                    color_changes.iter().map(|&c| self.update_colors_at_position(c)).count();
+                    color_changes
+                        .iter()
+                        .map(|&c| self.update_colors_at_position(c))
+                        .count();
                     color_changes.clear();
                 }
                 {
                     let mut state_changes = self.state_changes.borrow_mut();
-                    state_changes.iter().map(|&c| self.update_states_at_position(c)).count();
+                    state_changes
+                        .iter()
+                        .map(|&c| self.update_states_at_position(c))
+                        .count();
                     state_changes.clear();
                 }
                 {
-                    if self.model.iter().any(|s| !s.consistent()) {break}
+                    if self.model.iter().any(|s| !s.consistent()) {
+                        break;
+                    }
                 }
                 {
                     let color_changes = self.color_changes.borrow();
@@ -250,7 +265,9 @@ impl OverlappingModel {
     }
 
     fn color_to_index(&self, color: &Color) -> usize {
-        self.palette.binary_search(color).expect("Color not found in palette!")
+        self.palette.binary_search(color).expect(
+            "Color not found in palette!",
+        )
     }
 
     fn get_downstream_coordinates(&self, position: (usize, usize)) -> HashSet<(usize, usize)> {
@@ -292,8 +309,10 @@ impl OverlappingModel {
             WrappingType::NoWrap => {
                 for t in 0..s * s {
                     let offset = (t / s, t % s);
-                    let coordinate = (position.0 as isize - offset.0,
-                                      position.1 as isize - offset.1);
+                    let coordinate = (
+                        position.0 as isize - offset.0,
+                        position.1 as isize - offset.1,
+                    );
                     if self.valid_coord(coordinate) {
                         let coordinate = (coordinate.0 as usize, coordinate.1 as usize);
                         output.insert(coordinate);
@@ -310,11 +329,16 @@ impl OverlappingModel {
         let new_states = self.valid_states_at_position(position);
         let changed: bool;
         {
-            changed = self.model[position].possible_states.borrow_mut().intersect(&new_states);
+            changed = self.model[position]
+                .possible_states
+                .borrow_mut()
+                .intersect(&new_states);
         }
         if changed {
             let states_that_need_to_be_looked_at = self.get_downstream_coordinates(position);
-            self.color_changes.borrow_mut().extend(states_that_need_to_be_looked_at);
+            self.color_changes.borrow_mut().extend(
+                states_that_need_to_be_looked_at,
+            );
         }
     }
 
@@ -322,11 +346,16 @@ impl OverlappingModel {
         let new_colors = self.valid_colors_at_position(position);
         let changed: bool;
         {
-            changed = self.model[position].possible_colors.borrow_mut().intersect(&new_colors);
+            changed = self.model[position]
+                .possible_colors
+                .borrow_mut()
+                .intersect(&new_colors);
         }
         if changed {
             let states_that_need_to_be_looked_at = self.get_upstream_coordinates(position);
-            self.state_changes.borrow_mut().extend(states_that_need_to_be_looked_at)
+            self.state_changes.borrow_mut().extend(
+                states_that_need_to_be_looked_at,
+            )
         }
 
     }
@@ -355,7 +384,8 @@ impl OverlappingModel {
 
 
             let color_states = self.model[cell_coords].possible_colors.borrow();
-            let new_cell_states: BitVec = cell_states.iter()
+            let new_cell_states: BitVec = cell_states
+                .iter()
                 .enumerate()
                 .map(|(i, x)| if x {
                     let c = self.color_to_index(&self.states[i].0[pixel_coords]);
@@ -395,7 +425,9 @@ impl OverlappingModel {
 
             let mut new_color_states: BitVec = BitVec::from_elem(self.palette.len(), false);
 
-            for state_index in cell_states.iter().enumerate().filter(|&(_, s)| s).map(|(i, _)| i) {
+            for state_index in cell_states.iter().enumerate().filter(|&(_, s)| s).map(|(i,
+              _)| i)
+            {
                 let v = self.color_to_index(&self.states[state_index].0[pixel_coords]);
                 new_color_states.set(v, true);
             }
@@ -406,9 +438,15 @@ impl OverlappingModel {
         mass_intersect(patch_possibilites).unwrap()
     }
 
-    fn valid_coord<T: NumCast, U: NumCast> (&self, coord: (T, U)) -> bool {
-        let y: usize = match coord.0.to_usize() {Some(u) => u, None => return false,};
-        let x: usize = match coord.1.to_usize() {Some(u) => u, None => return false,};
+    fn valid_coord<T: NumCast, U: NumCast>(&self, coord: (T, U)) -> bool {
+        let y: usize = match coord.0.to_usize() {
+            Some(u) => u,
+            None => return false,
+        };
+        let x: usize = match coord.1.to_usize() {
+            Some(u) => u,
+            None => return false,
+        };
         let (safe_y, safe_x) = self.model.dim();
 
         (y < safe_y) && (x < safe_x)
@@ -422,9 +460,10 @@ impl OverlappingModel {
         palette
     }
 
-    fn build_block_frequency_map<T: Copy + Eq + Hash>(image_data: &Array2<T>,
-                                                      block_size: usize)
-                                                      -> Vec<(Array2<T>, usize)> {
+    fn build_block_frequency_map<T: Copy + Eq + Hash>(
+        image_data: &Array2<T>,
+        block_size: usize,
+    ) -> Vec<(Array2<T>, usize)> {
         let mut block_counts = HashMap::new();
 
         for block in image_data.windows((block_size, block_size)) {
@@ -436,9 +475,10 @@ impl OverlappingModel {
         block_counts.into_iter().collect()
     }
 
-    fn build_augmented_block_frequency_map<T: Copy + Eq + Hash>(image_data: &Array2<T>,
-                                                                block_size: usize)
-                                                                -> Vec<(Array2<T>, usize)> {
+    fn build_augmented_block_frequency_map<T: Copy + Eq + Hash>(
+        image_data: &Array2<T>,
+        block_size: usize,
+    ) -> Vec<(Array2<T>, usize)> {
         let mut block_counts = HashMap::<Array2<_>, usize>::new();
 
         for block in image_data.windows((block_size, block_size)) {
@@ -455,36 +495,47 @@ impl OverlappingModel {
 
 #[test]
 fn color_palette_test() {
-    let array = Array2::from_shape_vec((3, 3),
-                                       vec![Color(0, 0, 0),
-                                            Color(1, 1, 1),
-                                            Color(1, 1, 1),
-                                            Color(0, 0, 0),
-                                            Color(0, 0, 1),
-                                            Color(0, 0, 1),
-                                            Color(0, 0, 1),
-                                            Color(0, 0, 1),
-                                            Color(0, 0, 2)])
-        .unwrap();
+    let array = Array2::from_shape_vec(
+        (3, 3),
+        vec![
+            Color(0, 0, 0),
+            Color(1, 1, 1),
+            Color(1, 1, 1),
+            Color(0, 0, 0),
+            Color(0, 0, 1),
+            Color(0, 0, 1),
+            Color(0, 0, 1),
+            Color(0, 0, 1),
+            Color(0, 0, 2),
+        ],
+    ).unwrap();
 
-    let p = vec![Color(0, 0, 0), Color(0, 0, 1), Color(0, 0, 2), Color(1, 1, 1)];
+    let p = vec![
+        Color(0, 0, 0),
+        Color(0, 0, 1),
+        Color(0, 0, 2),
+        Color(1, 1, 1),
+    ];
     let p_test = OverlappingModel::build_color_palette(&array);
     assert_eq!(p, p_test);
 }
 
 #[test]
 fn build_block_frequency_map_test_1() {
-    let array = Array2::from_shape_vec((3, 3),
-                                       vec![Color(0, 0, 0),
-                                            Color(1, 1, 1),
-                                            Color(1, 1, 1),
-                                            Color(0, 0, 0),
-                                            Color(0, 0, 1),
-                                            Color(0, 0, 1),
-                                            Color(0, 0, 1),
-                                            Color(0, 0, 1),
-                                            Color(0, 0, 2)])
-        .unwrap();
+    let array = Array2::from_shape_vec(
+        (3, 3),
+        vec![
+            Color(0, 0, 0),
+            Color(1, 1, 1),
+            Color(1, 1, 1),
+            Color(0, 0, 0),
+            Color(0, 0, 1),
+            Color(0, 0, 1),
+            Color(0, 0, 1),
+            Color(0, 0, 1),
+            Color(0, 0, 2),
+        ],
+    ).unwrap();
     let p_test = OverlappingModel::build_block_frequency_map(&array, 2);
     assert_eq!(p_test.len(), 4);
 }
