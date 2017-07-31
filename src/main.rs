@@ -1,5 +1,4 @@
 #![allow(dead_code)]
-#![feature(try_from)]
 
 
 extern crate bit_vec;
@@ -7,12 +6,16 @@ extern crate png;
 extern crate ndarray;
 extern crate rand;
 extern crate chrono;
+extern crate num_traits;
 
 mod overlappingmodel;
 mod sourceimage;
 mod utils;
+mod offset;
+mod patch;
 
 use chrono::prelude::*;
+
 use std::path::Path;
 use std::fs::create_dir;
 

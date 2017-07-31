@@ -4,16 +4,18 @@
 use utils::*;
 
 use bit_vec::BitVec;
-use sourceimage::{Color, SeedImage};
 use png::{Encoder, ColorType, BitDepth, HasParameters};
 use ndarray::prelude::*;
 use rand;
+use num_traits::cast::{NumCast, ToPrimitive};
+
+use sourceimage::{Color, SeedImage};
+
 
 use std::collections::HashMap;
 use std::cell::RefCell;
 use std::{f64, usize};
 use std::hash::Hash;
-use std::convert::TryInto;
 use std::collections::HashSet;
 use std::fs::File;
 use std::path::Path;
@@ -371,7 +373,7 @@ impl OverlappingModel {
 
     fn valid_colors_at_position(&self, position: (usize, usize)) -> BitVec {
         let wrap = self.wrap;
-        let s: isize = self.state_size.try_into().unwrap();
+        let s: isize = self.state_size.to_isize().unwrap();
         let mut patch_possibilites = Vec::<BitVec>::with_capacity((s * s) as usize);
         let pos = (position.0 as isize, position.1 as isize);
 
@@ -404,23 +406,14 @@ impl OverlappingModel {
         mass_intersect(patch_possibilites).unwrap()
     }
 
-    fn valid_coord<T: TryInto<usize>>(&self, coord: (T, T)) -> bool {
-        let y: usize = match coord.0.try_into() {
-            Ok(u) => u,
-            Err(_) => return false,
-        };
-        let x: usize = match coord.1.try_into() {
-            Ok(u) => u,
-            Err(_) => return false,
-        };
+    fn valid_coord<T: NumCast, U: NumCast> (&self, coord: (T, U)) -> bool {
+        let y: usize = match coord.0.to_usize() {Some(u) => u, None => return false,};
+        let x: usize = match coord.1.to_usize() {Some(u) => u, None => return false,};
         let (safe_y, safe_x) = self.model.dim();
 
         (y < safe_y) && (x < safe_x)
     }
 
-    fn wrap_coord<T: TryInto<usize>>(&self, coord: (T, T)) -> Result<(usize, usize), ()> {
-        unimplemented!()
-    }
 
     fn build_color_palette(image_data: &Array2<Color>) -> Vec<Color> {
         let mut palette: Vec<Color> = image_data.iter().cloned().collect();
