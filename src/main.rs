@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 
 extern crate bit_vec;
 extern crate png;
