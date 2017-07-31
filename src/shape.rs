@@ -1,5 +1,4 @@
-use std::ops::Neg;
-use std::convert::From;
+use offset::Offset2D;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ShapeRange2D {
@@ -126,21 +125,7 @@ fn shaperange_iter_test_4() {
 
 
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
-pub struct Offset2D(isize, isize);
 
-impl Neg for Offset2D {
-    type Output = Self;
-    fn neg(self) -> Self::Output {
-        Offset2D(-self.0, -self.1)
-    }
-}
-
-impl From<(isize, isize)> for Offset2D {
-    fn from(src: (isize, isize)) -> Self {
-        Offset2D(src.0, src.1)
-    }
-}
 
 
 fn clamp<T: PartialOrd>(input: T, min: T, max: T) -> T {

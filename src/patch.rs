@@ -1,4 +1,6 @@
-use shape::{Offset2D, ShapeRange2D};
+use shape::ShapeRange2D;
+use offset::Offset2D;
+
 use ndarray::prelude::*;
 
 
