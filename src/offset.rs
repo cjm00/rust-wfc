@@ -17,3 +17,9 @@ impl From<(isize, isize)> for Offset2D {
         Offset2D(src.0, src.1)
     }
 }
+
+impl From<(usize, usize)> for Offset2D {
+    fn from(src: (usize, usize)) -> Self {
+        Offset2D(src.0 as isize, src.1 as isize)
+    }
+}
