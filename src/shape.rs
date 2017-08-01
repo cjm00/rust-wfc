@@ -130,11 +130,11 @@ fn shaperange_iter_test_4() {
 
 fn clamp<T: PartialOrd>(input: T, min: T, max: T) -> T {
     if input < min {
-        return min;
+        min
     } else if input > max {
-        return max;
+        max
     } else {
-        return input;
+        input
     }
 }
 
