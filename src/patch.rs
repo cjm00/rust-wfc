@@ -1,5 +1,6 @@
 use shape::ShapeRange2D;
 use offset::Offset2D;
+use pixel::Pixel;
 
 use ndarray::prelude::*;
 
@@ -11,7 +12,7 @@ pub trait Patch2D {
 
 impl<T> Patch2D for Array2<T>
 where
-    T: Copy + Eq,
+    T: Copy + Eq + Pixel,
 {
     fn shape(&self) -> (usize, usize) {
         self.dim()
