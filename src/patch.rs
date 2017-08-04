@@ -4,16 +4,22 @@ use pixel::Pixel;
 
 use ndarray::prelude::*;
 
+use std::hash::Hash;
+
+
 
 pub trait Patch2D {
+    type Output;
     fn compare_with_offset<T: Into<Offset2D>>(&self, other: &Self, offset: T) -> bool;
     fn shape(&self) -> (usize, usize);
+    fn output_state(&self) -> Self::Output;
 }
 
 impl<T> Patch2D for Array2<T>
 where
-    T: Copy + Eq + Pixel,
+    T: Copy + Eq + Pixel + Hash,
 {
+    type Output = T;
     fn shape(&self) -> (usize, usize) {
         self.dim()
     }
@@ -32,6 +38,10 @@ where
         self_coords.zip(other_coords).all(
             |(s, o)| self[s] == other[o],
         )
+    }
+
+    fn output_state(&self) -> Self::Output {
+        self[(0, 0)]
     }
 }
 
