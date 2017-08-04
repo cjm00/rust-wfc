@@ -1,17 +1,21 @@
+#![allow(dead_code)]
 
-extern crate bit_vec;
-extern crate png;
 extern crate ndarray;
 extern crate rand;
 extern crate chrono;
 extern crate num_traits;
+extern crate image;
+extern crate bit_vec;
+extern crate itertools;
 
-mod overlappingmodel;
-mod sourceimage;
 mod utils;
 mod offset;
 mod patch;
 mod shape;
+mod pixel;
+mod texturesource;
+mod model;
+mod possibilitycell;
 
 use chrono::prelude::*;
 
@@ -29,20 +33,5 @@ fn main() {
             Err(_) => panic!("Don't have permission to make files here"),
             Ok(_) => (),
         };
-    }
-
-    let im = sourceimage::SeedImage::from_file(INPUT);
-    let model = overlappingmodel::OverlappingModel::from_seed_image(im, (50, 50), 3);
-
-    match model.collapse_and_propagate() {
-        Ok(_) => {
-            let now: i64 = Local::now().timestamp();
-            model.to_image(&format!("{}/output{}.png", OUTPUT_DIR, now))
-        }
-        Err(u) => {
-            println!("{:?}", u);
-            let now: i64 = Local::now().timestamp();
-            model.to_image(&format!("{}/output{}.png", OUTPUT_DIR, now));
-        }
     }
 }
