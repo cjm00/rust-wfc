@@ -22,7 +22,7 @@ use chrono::prelude::*;
 use std::path::Path;
 use std::fs::create_dir;
 
-static INPUT: &'static str = "./assets/Knot.png";
+static INPUT: &'static str = "./assets/Flowers.png";
 static OUTPUT_DIR: &'static str = "./output";
 
 
@@ -34,4 +34,10 @@ fn main() {
             Ok(_) => (),
         };
     }
+
+    let mut model: model::Model2D<_> = model::Model2D::new(INPUT, (100, 100), (3, 3));
+    model.run();
+    
+    let now: i64 = Local::now().timestamp();
+    model.to_file(&format!("{}/output{}.png", OUTPUT_DIR, now))
 }

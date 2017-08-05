@@ -1,4 +1,4 @@
-use image::{self, ImageFormat};
+use image::{self, ImageFormat, Rgb};
 use ndarray::prelude::*;
 
 use std::io::BufReader;
@@ -13,8 +13,8 @@ pub struct TextureSource<T: Pixel + Copy + Hash + Eq> {
     pub img: Array2<T>,
 }
 
-impl TextureSource<[u8; 3]> {
-    pub fn from_file<T: AsRef<Path>>(p: T) -> Result<TextureSource<[u8; 3]>, ()> {
+impl TextureSource<Rgb<u8>> {
+    pub fn from_file<T: AsRef<Path>>(p: T) -> Result<TextureSource<Rgb<u8>>, ()> {
         let p: &Path = p.as_ref();
         let buf = BufReader::new(File::open(p).unwrap());
         let src_img = image::load(buf, ImageFormat::PNG).unwrap().to_rgb();
@@ -22,8 +22,7 @@ impl TextureSource<[u8; 3]> {
         let dims = src_img.dimensions();
         let dims = (dims.0 as usize, dims.1 as usize);
 
-        let src_img_data = src_img.into_raw();
-        let src_img_data = src_img_data.chunks(3).map(|s| [s[0], s[1], s[2]]).collect();
+        let src_img_data = src_img.pixels().cloned().collect();
         let image_data = Array2::from_shape_vec(dims, src_img_data).unwrap();
         Ok(TextureSource { img: image_data })
     }
