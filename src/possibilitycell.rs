@@ -63,7 +63,7 @@ impl PossibilityCell {
 
     pub fn to_output_state<T: Patch2D>(&self, states: &[T]) -> T::Output {
         if self.decided() {
-            let chosen_state_index = self.possible_states.iter().enumerate().filter(|&(_, p)| p).map(|(i, _)| i).next().unwrap();
+            let chosen_state_index = self.possible_states.iter().position(|p| p).unwrap();
             states[chosen_state_index].output_state()
         } else {
             unimplemented!();
